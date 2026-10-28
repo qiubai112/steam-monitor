@@ -32,6 +32,9 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests
+
       - name: Fetch client binaries
         id: fetch
         run: |
@@ -136,6 +139,12 @@ jobs:
           gh issue create \
             --title "Pattern resolve blocked: stable ${STABLE_SC}/${STABLE_SUI}, beta ${BETA_SC}/${BETA_SUI}" \
             --body-file issue_body.md
+
+      - name: Fail run when resolution is blocked
+        if: always() && steps.resolve.outputs.code == '1'
+        run: |
+          echo "::error::Pattern or IPC resolution failed. No version files were published."
+          exit 1
 
       - name: Close resolved blocked issues
         if: steps.fetch.outputs.skip != 'true' && steps.resolve.outputs.code == '0'
