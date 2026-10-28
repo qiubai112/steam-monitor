@@ -46,6 +46,12 @@ def mkctx(entries=(), callees=None, callers=None, refs=None,
 
 
 class TestHelpers(unittest.TestCase):
+    def test_normalize_hotfix_build_root_only(self):
+        path = "public\\tier1\\utlmemory.h"
+        self.assertEqual(rp.normalize_anchor(rp.CS_HOTFIX + path), rp.CS + path)
+        self.assertEqual(rp.normalize_anchor(rp.CS + path), rp.CS + path)
+        self.assertEqual(rp.normalize_anchor("other " + rp.CS_HOTFIX), "other " + rp.CS_HOTFIX)
+
     def test_only(self):
         self.assertEqual(rp._only([7], "x"), (7, None))
         v, e = rp._only([], "x")
@@ -194,6 +200,14 @@ class TestClientChain(unittest.TestCase):
                              0xD14B90: range(110)})
         self.assertEqual(rp.p2_findcreate(ctx, rb, ctx.callers_map()),
                          (0xD143D0, None))
+
+    def test_findcreate_crosses_aligned_window_boundary(self):
+        rb = 0xDA0F80
+        ctx = mkctx(entries=[0xD9D440, 0xD9E360, 0xD9EB20],
+                    callers={0xD9D440: range(112), 0xD9E360: range(170),
+                             0xD9EB20: range(104)})
+        self.assertEqual(rp.p2_findcreate(ctx, rb, ctx.callers_map()),
+                         (0xD9E360, None))
 
     def test_pplu(self):
         P1, P1E, P2, P2E, U = 0x5001, 0x5002, 0x5003, 0x5004, 0x6001

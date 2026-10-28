@@ -45,6 +45,7 @@ def mkimg(entries=(), with_td=True, with_col=True, col_sig=1,
     img.put(VT_RVA + 10 * 8, struct.pack("<Q", BASE + slotval))
     if wrapper_hash:
         img.put(WRAP + 0x63, bytes.fromhex("D6FC3200")[::-1])
+        img.put(WRAP + 0x70, bytes.fromhex("D7058CA5")[::-1])
     ctx_entries = list(entries) or [WRAP]
     return img, ctx_entries
 
@@ -105,6 +106,16 @@ class TestCheckWrapper(unittest.TestCase):
     def test_hash_missing(self):
         img, entries = mkimg(wrapper_hash=False)
         self.assertFalse(ri.check_wrapper(img, WRAP, "D6FC3200", set(entries)))
+
+    def test_fencepost_and_next_function_boundary(self):
+        img, entries = mkimg()
+        self.assertTrue(ri.check_wrapper(img, WRAP, "D6FC3200", set(entries), "D7058CA5"))
+        self.assertFalse(ri.check_wrapper(img, WRAP, "D6FC3200", set(entries), "BAD0F00D"))
+        self.assertFalse(ri.check_wrapper(img, WRAP, "D6FC3200", {WRAP, WRAP + 0x68}, "D7058CA5"))
+
+    def test_stable_profile_is_sha_specific(self):
+        self.assertIs(ri.profiles_for_sha(ri.STABLE_1792618285_SHA), ri.STABLE_1792618285)
+        self.assertIs(ri.profiles_for_sha("other"), ri.IPC_IFACES)
 
 
 class TestResolveIface(unittest.TestCase):
