@@ -48,6 +48,14 @@ ANCHORS = {
 }
 
 CS = "C:\\buildworker\\steam_rel_client_win64\\build\\src\\"
+CS_HOTFIX = "C:\\buildworker\\steam_rel_client_hotfix_win64\\build\\src\\"
+
+
+def normalize_anchor(s):
+    """Treat the hotfix build root as the same source tree, not arbitrary text."""
+    return CS + s[len(CS_HOTFIX):] if s.startswith(CS_HOTFIX) else s
+
+
 EXACT_ANCHORS = {
     # hook -> full string-ref set (exactly one func matches).
     "steamclient": {
@@ -313,9 +321,8 @@ def p2_readasbin(ctx, lp, cm):
 
 def p2_findcreate(ctx, rb, cm):
     rbf = ctx.refs_by_func()
-    base = rb & ~0xFFFF
     leaves = [t for t in ctx.entries
-              if base <= t < base + 0x10000 and not rbf.get(t)
+              if abs(t - rb) < 0x10000 and not rbf.get(t)
               and not ctx.callees(t) and len(cm.get(t, ())) >= 100]
     return _max_unique([(t, len(cm.get(t, ()))) for t in leaves],
                        "FindOrCreate cands")
@@ -423,7 +430,7 @@ class Ctx:
                     while j < len(blob) and 32 <= blob[j] < 127:
                         j += 1
                     if j - i >= 5 and (j >= len(blob) or blob[j] == 0):
-                        self.strings[va + i] = blob[i:j].decode()
+                        self.strings[va + i] = normalize_anchor(blob[i:j].decode())
                     i = max(j, i + 1)
                 else:
                     i += 1

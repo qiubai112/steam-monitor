@@ -24,6 +24,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import struct
 import sys
 import tomllib
@@ -62,6 +63,31 @@ IPC_IFACES = {
         ],
     },
 }
+
+# The stable 1792618285 build predates the beta profile above: its IClientUser
+# vtable has one fewer entry and its IPC wire constants differ. Pin this profile
+# to the exact binary hash; unknown builds must still pass the default checks.
+STABLE_1792618285_SHA = "253e0a11a4415b38c78a42f7bdd6ecc426455f06c1ba6453a48090df3142dbbc"
+STABLE_1792618285 = {
+    "IClientUser": {
+        "id": 1, "td": b".?AVIClientUserMap@@", "methods": [
+            ("GetSteamID", 10, "D6FC3200", "D7058CA5", 0),
+            ("GetAppOwnershipTicketExtendedData", 104, "5578709E", "55D3028D", 2),
+            ("RequestEncryptedAppTicket", 119, "BBB80476", "BC26C4B7", 2),
+            ("GetEncryptedAppTicket", 120, "25D6BB1D", "2646B663", 1),
+        ],
+    },
+    "IClientUtils": {
+        "id": 4, "td": b".?AVIClientUtilsMap@@", "methods": [
+            ("GetAppID", 19, "09607EC4", "0AFE7552", 0),
+            ("GetAPICallResult", 24, "2D3D3947", "2EDF5EE6", 3),
+        ],
+    },
+}
+
+
+def profiles_for_sha(sha):
+    return STABLE_1792618285 if sha == STABLE_1792618285_SHA else IPC_IFACES
 
 
 def image_base(buf) -> int:
@@ -154,13 +180,16 @@ def find_vtable(img, spans, td_rva, base):
     return next(iter(match)), None
 
 
-def check_wrapper(img, func_rva, funchash: str, pdata) -> bool:
+def check_wrapper(img, func_rva, funchash: str, pdata, fencepost=None) -> bool:
     if func_rva not in pdata:
         return False
     o = img.rva2off(func_rva)
     if o is None:
         return False
-    return bytes.fromhex(funchash)[::-1] in bytes(img.buf[o:o + HASH_WINDOW])
+    next_func = min((p for p in pdata if p > func_rva), default=func_rva + HASH_WINDOW)
+    code = bytes(img.buf[o:o + min(HASH_WINDOW, next_func - func_rva)])
+    return (bytes.fromhex(funchash)[::-1] in code and
+            (fencepost is None or bytes.fromhex(fencepost)[::-1] in code))
 
 
 def resolve_iface(spec, img, spans, base, pdata):
@@ -171,12 +200,12 @@ def resolve_iface(spec, img, spans, base, pdata):
     if err is not None:
         return None, None, err
     methods = {}
-    for name, idx, funchash, _fence, _argc in spec["methods"]:
+    for name, idx, funchash, fence, _argc in spec["methods"]:
         f = _u64(img, vt + idx * 8)
         if f is None:
             return None, None, f"slot {idx} unreadable"
         f -= base
-        if not check_wrapper(img, f, funchash, pdata):
+        if not check_wrapper(img, f, funchash, pdata, fence):
             return None, None, f"{name}: wrapper {f:#x} fails hash check"
         methods[name] = f
     return vt, methods, None
@@ -209,7 +238,7 @@ def cmd_resolve(args):
     entries = sorted(img.pdata_entries())
     pdata = set(entries)
     resolved, failed = [], []
-    for iface, spec in IPC_IFACES.items():
+    for iface, spec in profiles_for_sha(hashlib.sha256(img.buf).hexdigest()).items():
         vt, methods, err = resolve_iface(spec, img, spans, base, pdata)
         if err is not None:
             failed.append((iface, err))
